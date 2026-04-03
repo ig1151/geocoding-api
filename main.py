@@ -4,7 +4,7 @@ import os
 
 app = FastAPI(title="Geocoding API")
 
-GEOCODING_API_KEY = os.getenv("GEOCODING_API_KEY", "")
+OPENCAGE_API_KEY = os.getenv("OPENCAGE_API_KEY", "")
 
 
 @app.get("/health")
@@ -14,42 +14,70 @@ def health():
 
 @app.get("/v1/geocode")
 async def geocode(address: str = Query(...)):
+    if not OPENCAGE_API_KEY:
+        return {"error": "OPENCAGE_API_KEY is missing"}
+
     async with httpx.AsyncClient() as client:
-        url = "https://maps.googleapis.com/maps/api/geocode/json"
-        resp = await client.get(url, params={"address": address, "key": GEOCODING_API_KEY})
+        resp = await client.get(
+            "https://api.opencagedata.com/geocode/v1/json",
+            params={
+                "q": address,
+                "key": OPENCAGE_API_KEY,
+                "limit": 1,
+                "no_annotations": 1,
+            },
+        )
         data = resp.json()
 
-        if data.get("status") != "OK":
+        if data.get("status", {}).get("code") != 200:
             return {
-                "error": data.get("status", "UNKNOWN_ERROR"),
-                "message": data.get("error_message"),
+                "error": data.get("status", {}).get("message", "UNKNOWN_ERROR"),
                 "raw": data,
             }
 
-        location = data["results"][0]["geometry"]["location"]
+        results = data.get("results", [])
+        if not results:
+            return {"error": "No results found", "raw": data}
+
+        first = results[0]
+        geometry = first.get("geometry", {})
         return {
-            "address": data["results"][0]["formatted_address"],
-            "latitude": location["lat"],
-            "longitude": location["lng"],
+            "address": first.get("formatted"),
+            "latitude": geometry.get("lat"),
+            "longitude": geometry.get("lng"),
         }
 
 
 @app.get("/v1/reverse")
 async def reverse(lat: float, lng: float):
+    if not OPENCAGE_API_KEY:
+        return {"error": "OPENCAGE_API_KEY is missing"}
+
     async with httpx.AsyncClient() as client:
-        url = "https://maps.googleapis.com/maps/api/geocode/json"
-        resp = await client.get(url, params={"latlng": f"{lat},{lng}", "key": GEOCODING_API_KEY})
+        resp = await client.get(
+            "https://api.opencagedata.com/geocode/v1/json",
+            params={
+                "q": f"{lat},{lng}",
+                "key": OPENCAGE_API_KEY,
+                "limit": 1,
+                "no_annotations": 1,
+            },
+        )
         data = resp.json()
 
-        if data.get("status") != "OK":
+        if data.get("status", {}).get("code") != 200:
             return {
-                "error": data.get("status", "UNKNOWN_ERROR"),
-                "message": data.get("error_message"),
+                "error": data.get("status", {}).get("message", "UNKNOWN_ERROR"),
                 "raw": data,
             }
 
+        results = data.get("results", [])
+        if not results:
+            return {"error": "No results found", "raw": data}
+
+        first = results[0]
         return {
             "latitude": lat,
             "longitude": lng,
-            "address": data["results"][0]["formatted_address"],
+            "address": first.get("formatted"),
         }
